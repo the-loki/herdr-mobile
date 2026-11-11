@@ -4,7 +4,7 @@ import { ActionDialog, PromptDialog } from './components/Dialogs.jsx';
 import { PaneDetail } from './components/PaneDetail.jsx';
 import { PaneList } from './components/PaneList.jsx';
 import { useHashPane, useHerdrStream, usePaneText, useSnapshot } from './hooks/useHerdr.js';
-import { paneLabel, workspaceLabel } from './lib/domain.js';
+import { paneLabel, sortByAttention, workspaceLabel } from './lib/domain.js';
 
 export default function App() {
   const { data, error, reload } = useSnapshot();
@@ -51,6 +51,15 @@ export default function App() {
     if (paneId) setView('detail');
     else setView(window.matchMedia('(min-width: 768px)').matches ? 'detail' : 'list');
   }, [paneId]);
+
+  // On a wide screen the detail pane is always visible, so land on whatever
+  // needs attention first instead of an empty "pick a pane".
+  useEffect(() => {
+    if (paneId || !data) return;
+    if (!window.matchMedia('(min-width: 768px)').matches) return;
+    const first = [...(data.panes ?? [])].sort(sortByAttention)[0];
+    if (first) selectPane(first.id, { replace: true });
+  }, [paneId, data, selectPane]);
 
   useEffect(() => {
     const saved = localStorage.getItem('hmw-theme');
@@ -246,7 +255,7 @@ export default function App() {
       {toast ? (
         <div
           data-testid="toast"
-          className="pointer-events-none fixed bottom-[max(20px,env(safe-area-inset-bottom))] left-1/2 z-30 -translate-x-1/2 rounded-full border border-line bg-raised px-4 py-2.5 text-[13px] shadow-lg"
+          className="pointer-events-none fixed left-1/2 top-16 z-30 -translate-x-1/2 rounded-full border border-line bg-raised px-4 py-2.5 text-[13px] shadow-lg"
         >
           {toast}
         </div>

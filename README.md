@@ -85,7 +85,9 @@ systemctl --user enable --now herdr-web
   Scrollback is fetched only when you ask for it.
 - **Reply.** `Send ⏎` submits text and Enter in one herdr request; `Type only`
   drafts without submitting; the key strip covers `Esc`, `Ctrl-C`, `Tab`,
-  arrows, `Enter`, `y`/`n`, `1`/`2`/`3` for approval dialogs and menus.
+  arrows, `Enter`, `y`/`n`, `1`/`2`/`3` for approval dialogs and menus. Writes
+  to one pane are serialized, so tapping `y` then `⏎` cannot arrive out of order
+  ([ADR 0006](docs/adr/0006-serialize-writes-per-pane.md)).
 - **Structure.** New workspace, new tab, split (optionally running a command
   such as `pi`), rename, close, and “show in terminal”.
 - **Installable.** Manifest + service worker, so it can live on a home screen.
@@ -119,7 +121,7 @@ Everything is verified in a container against a real herdr and a real pi pane:
 ```bash
 docker build -f container/Dockerfile -t herdr-mobile-test .
 docker run --rm -v "$PWD:/work" -v "$HOME/.pi/agent:/pi-src:ro" \
-  herdr-mobile-test bash container/run-e2e.sh   # 9 browser + API checks, screenshots in container/artifacts
+  herdr-mobile-test bash container/run-e2e.sh   # 12 browser + API checks, screenshots in container/artifacts
 ```
 
 ## Layout

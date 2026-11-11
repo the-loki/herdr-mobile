@@ -182,6 +182,55 @@ test('a split can start a command in the new pane', async () => {
   });
 });
 
+test('input to one pane reaches herdr in the order the user tapped it', async () => {
+  // herdr takes one request per connection, so two keys sent concurrently can
+  // arrive out of order: "y" then Enter must never land as Enter then "y".
+  const started = [];
+  let inFlight = 0;
+  let maxConcurrent = 0;
+  const client = {
+    async rpc(method, params) {
+      started.push(params.keys);
+      inFlight += 1;
+      maxConcurrent = Math.max(maxConcurrent, inFlight);
+      try {
+        await new Promise((resolve) => setTimeout(resolve, started.length === 1 ? 40 : 5));
+        return { type: 'ok' };
+      } finally {
+        inFlight -= 1;
+      }
+    },
+  };
+  const instance = createApi({ client });
+  const post = (body) =>
+    instance.handle({ method: 'POST', path: '/api/pane/w1:p1/keys', query: new URLSearchParams(), body });
+
+  await Promise.all([post({ keys: ['y'] }), post({ keys: ['Enter'] }), post({ keys: ['n'] })]);
+
+  assert.deepEqual(started, [['y'], ['Enter'], ['n']], 'keys are sent in tap order');
+  assert.equal(maxConcurrent, 1, 'one write per pane is in flight at a time');
+});
+
+test('a failing send does not wedge the queue for that pane', async () => {
+  const calls = [];
+  const client = {
+    async rpc(method, params) {
+      calls.push(params.keys);
+      if (params.keys?.[0] === 'boom') throw new HerdrError('invalid_key', 'unsupported key boom');
+      return { type: 'ok' };
+    },
+  };
+  const instance = createApi({ client });
+  const post = (keys) =>
+    instance.handle({ method: 'POST', path: '/api/pane/w1:p1/keys', query: new URLSearchParams(), body: { keys } });
+
+  const [bad, good] = await Promise.all([post(['boom']), post(['Enter'])]);
+
+  assert.equal(bad.status, 400);
+  assert.equal(good.status, 200);
+  assert.deepEqual(calls, [['boom'], ['Enter']]);
+});
+
 test('unknown routes and non-allowlisted herdr methods are refused', async () => {
   const client = stubClient();
   assert.equal((await call(client, 'POST', '/api/rpc', { method: 'server.stop' })).status, 404);

@@ -127,6 +127,22 @@ async function typeInto(page, text) {
   assert.equal(value, text, 'the reply box holds what was typed');
 }
 
+const preText = (page) => page.$eval('pre', (node) => node.textContent ?? '').catch(() => '');
+
+/** Send a shell command and wait for its own echo, retrying once on a race with the previous command. */
+async function runInPane(page, command, { timeout = 20000 } = {}) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await typeInto(page, command);
+    await clickByText(page, 'Send');
+    const deadline = Date.now() + (attempt === 0 ? timeout : timeout / 2);
+    while (Date.now() < deadline) {
+      if ((await preText(page)).includes(command)) return;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  throw new Error(`the pane never echoed ${JSON.stringify(command)}; last text ${JSON.stringify((await preText(page)).slice(-200))}`);
+}
+
 async function waitForText(page, needle, { timeout = 15000 } = {}) {
   const wanted = needle.toLowerCase();
   await page.waitForFunction((value) => document.body.innerText.toLowerCase().includes(value), { timeout }, wanted);
@@ -292,6 +308,49 @@ try {
     await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-shell.png') });
   });
 
+  await step('the open pane keeps up on its own, with no further taps', async () => {
+    // Nothing is clicked between the send and the assertion: the 1.2 s viewport
+    // poll is the only thing that can make tick-5 appear.
+    const loop = 'for i in 1 2 3 4 5; do echo tick-$i; sleep 0.6; done';
+    await typeInto(page, loop);
+    await clickByText(page, 'Send');
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('tick-5'), {
+      timeout: 20000,
+    });
+    const text = await page.$eval('pre', (node) => node.textContent);
+    assert.ok(text.indexOf('tick-1') < text.indexOf('tick-5'), 'the pane grew from tick-1 to tick-5 in place');
+    await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-live.png') });
+  });
+
+  await step('an approval prompt is answered from the key strip', async () => {
+    // Wait for the previous loop to give the shell back before asking a question.
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('tick-5'), {
+      timeout: 20000,
+    });
+    await runInPane(page, `printf 'Continue? (y/n) '; read answer; echo "answered:$answer"`);
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('Continue? (y/n)'), {
+      timeout: 15000,
+    });
+    await clickByText(page, 'y', { exact: true });
+    await clickByText(page, '⏎', { exact: true });
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('answered:y'), {
+      timeout: 15000,
+    });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-approval.png') });
+  });
+
+  await step('Ctrl-C from the key strip interrupts a running command', async () => {
+    await runInPane(page, 'sleep 30', { timeout: 8000 });
+    await clickByText(page, 'Ctrl-C', { exact: true });
+    // The proof the interrupt landed: the shell answers again well before the
+    // 30 s sleep could have finished on its own.
+    await typeInto(page, 'echo after-interrupt');
+    await clickByText(page, 'Send');
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('after-interrupt'), {
+      timeout: 10000,
+    });
+  });
+
   await step('the desktop layout shows the sidebar and the pane at the same time', async () => {
     await page.setViewport(DESKTOP);
     await page.goto(`${BASE}/?token=${TOKEN}`, { waitUntil: 'domcontentloaded' });
@@ -299,6 +358,10 @@ try {
     const columns = await page.$eval('main', (node) => getComputedStyle(node).gridTemplateColumns);
     assert.ok(columns.split(' ').length >= 2, `desktop grid has two columns (${columns})`);
     await waitForText(page, 'demo');
+    // No hash in the URL: a wide screen should land on the pane that needs you.
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').length > 40, { timeout: 20000 });
+    const picked = await page.$eval('pre', (node) => node.textContent.length);
+    assert.ok(picked > 40, 'a pane was opened automatically on the desktop layout');
     await page.screenshot({ path: path.join(ARTIFACTS, 'desktop.png') });
   });
 

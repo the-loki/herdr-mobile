@@ -11,19 +11,33 @@ const MAX_ARGV = 32;
 
 export function createApi({ client }) {
   const routes = buildRoutes();
+  // herdr opens a connection per request, so two taps that race could arrive
+  // out of order ("y" and Enter landing as Enter then "y"). Writes to one pane
+  // are chained; a pane that is not the same is unaffected.
+  const paneQueues = new Map();
+
+  function writeToPane(paneId, task) {
+    const previous = paneQueues.get(paneId) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    paneQueues.set(
+      paneId,
+      run.catch(() => {}),
+    );
+    return run;
+  }
 
   async function handle({ method, path, query, body }) {
     const route = matchRoute(routes, method, path);
     if (route.error === 404) return fail(404, 'not_found', `no route for ${path}`);
     if (route.error === 405) return fail(405, 'method_not_allowed', `${path} does not accept ${method}`);
     try {
-      return await route.handler({ client, params: route.params, query, body: body ?? {} });
+      return await route.handler({ client, params: route.params, query, body: body ?? {}, writeToPane });
     } catch (error) {
       return fail(...httpStatusFor(error), error.code ?? 'error', error.message);
     }
   }
 
-  return { handle };
+  return { handle, writeToPane };
 }
 
 function matchRoute(routes, method, path) {
@@ -145,7 +159,7 @@ async function getPaneText({ client, params, query }) {
   return ok({ text: read.text ?? '', revision: read.revision ?? 0, truncated: Boolean(read.truncated) });
 }
 
-async function postInput({ client, params, body }) {
+async function postInput({ client, params, body, writeToPane }) {
   const text = body.text;
   const keys = body.keys;
   if (text !== undefined && typeof text !== 'string') return fail(400, 'invalid_params', 'text must be a string');
@@ -155,23 +169,27 @@ async function postInput({ client, params, body }) {
   if (!text && !keyList.value) return fail(400, 'invalid_params', 'send text, keys, or both');
 
   if (text && keyList.value) {
-    await client.rpc('pane.send_input', { pane_id: params.paneId, text, keys: keyList.value });
+    await writeToPane(params.paneId, () =>
+      client.rpc('pane.send_input', { pane_id: params.paneId, text, keys: keyList.value }),
+    );
     return ok({ ok: true });
   }
   if (text) {
     const keysToSend = body.submit ? ['Enter'] : undefined;
-    await client.rpc('pane.send_input', compact({ pane_id: params.paneId, text, keys: keysToSend }));
+    await writeToPane(params.paneId, () =>
+      client.rpc('pane.send_input', compact({ pane_id: params.paneId, text, keys: keysToSend })),
+    );
     return ok({ ok: true });
   }
-  await client.rpc('pane.send_keys', { pane_id: params.paneId, keys: keyList.value });
+  await writeToPane(params.paneId, () => client.rpc('pane.send_keys', { pane_id: params.paneId, keys: keyList.value }));
   return ok({ ok: true });
 }
 
-async function postKeys({ client, params, body }) {
+async function postKeys({ client, params, body, writeToPane }) {
   const keyList = validateKeys(body.keys);
   if (keyList.error) return keyList.error;
   if (!keyList.value) return fail(400, 'invalid_params', 'keys is required');
-  await client.rpc('pane.send_keys', { pane_id: params.paneId, keys: keyList.value });
+  await writeToPane(params.paneId, () => client.rpc('pane.send_keys', { pane_id: params.paneId, keys: keyList.value }));
   return ok({ ok: true });
 }
 
