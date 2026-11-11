@@ -1,5 +1,11 @@
 # 0002 — Poke on events, poll the visible screen
 
+> **Partly superseded by [0009](0009-a-real-terminal-from-herdrs-frames.md).**
+> The socket API is as described here, but herdr 0.7.2+ also exposes a subprocess
+> frame stream (`terminal session observe`), so the terminal no longer has to be
+> polled. The 1.2 s viewport poll now only feeds the text fallback.
+
+
 **Status:** accepted · 2026-11-10
 
 ## Context

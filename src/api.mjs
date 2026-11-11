@@ -40,7 +40,31 @@ export function createApi({ client }) {
     }
   }
 
-  return { handle, writeToPane };
+  // The terminal stream has to ask herdr for the pane's *own* size: `terminal
+  // session observe` crops to the viewport it is given rather than reflowing,
+  // so asking for a phone-sized viewport would cut the right side of the screen
+  // off. The size is in the layouts herdr already publishes.
+  let layoutCache = { at: 0, rects: new Map() };
+  async function paneGeometry(paneId) {
+    const now = Date.now();
+    if (now - layoutCache.at > 2000) {
+      const result = await client.rpc('session.snapshot', {});
+      const snapshot = result?.snapshot ?? result;
+      const rects = new Map();
+      for (const layout of snapshot?.layouts ?? []) {
+        for (const pane of layout?.panes ?? []) {
+          const rect = pane?.rect;
+          if (pane?.pane_id && rect?.width > 0 && rect?.height > 0) {
+            rects.set(pane.pane_id, { cols: Math.trunc(rect.width), rows: Math.trunc(rect.height) });
+          }
+        }
+      }
+      layoutCache = { at: now, rects };
+    }
+    return layoutCache.rects.get(paneId) ?? null;
+  }
+
+  return { handle, writeToPane, paneGeometry };
 }
 
 function matchRoute(routes, method, path) {

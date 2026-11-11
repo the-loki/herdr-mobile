@@ -341,3 +341,46 @@ test('herdr errors map to useful HTTP statuses', async () => {
   const invalid = stubClient({ 'pane.send_keys': new HerdrError('invalid_key', 'unsupported key PageUp') });
   assert.equal((await call(invalid, 'POST', '/api/pane/w1:p1/keys', { keys: ['PageUp'] })).status, 400);
 });
+
+test('the terminal stream learns the pane size from the layout, not from the phone', async () => {
+  const client = stubClient({
+    'session.snapshot': {
+      type: 'session_snapshot',
+      snapshot: {
+        layouts: [
+          {
+            workspace_id: 'w1',
+            tab_id: 'w1:t1',
+            panes: [
+              { pane_id: 'w1:p1', rect: { x: 0, y: 0, width: 120, height: 40 } },
+              { pane_id: 'w1:p2', rect: { x: 0, y: 40, width: 60, height: 12 } },
+            ],
+          },
+        ],
+      },
+    },
+  });
+
+  const geometry = await api(client).paneGeometry('w1:p1');
+  assert.deepEqual(geometry, { cols: 120, rows: 40 }, 'observe crops, so the pane size is what we ask for');
+  assert.deepEqual(await api(client).paneGeometry('w1:p2'), { cols: 60, rows: 12 });
+  assert.equal(await api(client).paneGeometry('w9:p9'), null);
+});
+
+test('a snapshot without rects is not a reason to fail', async () => {
+  const client = stubClient({ 'session.snapshot': { type: 'session_snapshot', snapshot: { layouts: [] } } });
+  assert.equal(await api(client).paneGeometry('w1:p1'), null);
+});
+
+test('the layout is cached so every terminal does not re-snapshot', async () => {
+  const client = stubClient({
+    'session.snapshot': {
+      type: 'session_snapshot',
+      snapshot: { layouts: [{ panes: [{ pane_id: 'w1:p1', rect: { width: 100, height: 30 } }] }] },
+    },
+  });
+  const instance = api(client);
+  await instance.paneGeometry('w1:p1');
+  await instance.paneGeometry('w1:p1');
+  assert.equal(client.calls.filter((call) => call.method === 'session.snapshot').length, 1);
+});

@@ -47,6 +47,14 @@ conflicts with a casual reading, this file wins.
   to `idle`.
 - **viewport poll** — the browser re-reading the open pane with `visible` every
   1.2 s while the tab is visible.
+- **frame stream** — the pane's screen as ANSI frames, from the subprocess
+  `herdr terminal session observe <pane>`. The socket API has no equivalent.
+- **observe vs control** — `observe` watches and never touches the pane;
+  `control` owns the size and the input, so it changes what the person at the
+  desk sees. This app only ever observes.
+- **crop, not reflow** — an observer's `--cols/--rows` is a viewport to cut from,
+  not a geometry herdr re-renders into. Ask for the pane's real size or lose the
+  right-hand side of every line.
 - **transcript** — the agent's own conversation log (`agent_session`, kind
   `path`). Structured: messages, thinking, tool calls and their results. The
   source for the chat view, never for approvals.

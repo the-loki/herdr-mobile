@@ -4,9 +4,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { clearSessionCookie, extractToken, parseCookies, sessionCookie, verifyToken } from './auth.mjs';
+import { GEOMETRY, PaneTerminal, parseGeometry } from './terminal.mjs';
 
 const MAX_BODY = 256 * 1024;
 const HEARTBEAT_MS = 25000;
+const PANE_ID = /^[A-Za-z0-9_.:@-]{1,64}$/;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -31,8 +33,16 @@ const SECURITY_HEADERS = {
   'cache-control': 'no-store',
 };
 
-export function createServer({ api, token, webRoot, secureCookies = false }) {
+export function createServer({
+  api,
+  token,
+  webRoot,
+  secureCookies = false,
+  herdrBin = process.env.HERDR_BIN ?? 'herdr',
+  spawnTerminal = (options) => new PaneTerminal(options),
+}) {
   const streams = new Set();
+  const terminals = new Set();
 
   const server = http.createServer((req, res) => {
     handle(req, res).catch((error) => {
@@ -58,6 +68,10 @@ export function createServer({ api, token, webRoot, secureCookies = false }) {
 
     if (pathname.startsWith('/api/')) {
       if (!authorized(req)) return unauthorized(req, res);
+      const terminal = terminalRoute(pathname);
+      if (terminal === 'invalid') return sendJson(res, 400, { error: { code: 'invalid_params', message: 'unusable pane id' } });
+      if (terminal && req.method === 'GET') return openTerminal(req, res, terminal, url);
+      if (terminal) return sendJson(res, 405, { error: { code: 'method_not_allowed', message: 'the terminal stream is a GET' } });
       return handleApi(req, res, url, pathname);
     }
 
@@ -110,6 +124,69 @@ export function createServer({ api, token, webRoot, secureCookies = false }) {
     res.on('error', drop);
   }
 
+  // `/api/pane/<id>/terminal?cols=&rows=` — the pane's own screen as ANSI frames.
+  // Reading a terminal never resizes the pane, so the person at the desk is not
+  // disturbed by someone watching on a phone (see src/terminal.mjs).
+  async function openTerminal(req, res, paneId, url) {
+    let geometry;
+    try {
+      geometry = parseGeometry(url.searchParams);
+    } catch (error) {
+      return sendJson(res, 400, { error: { code: 'invalid_params', message: error.message } });
+    }
+    // Prefer the pane's own size: `observe` crops to what it is given, so the
+    // client's phone viewport would cut lines instead of showing them.
+    if (typeof api.paneGeometry === 'function') {
+      try {
+        const actual = await api.paneGeometry(paneId);
+        if (actual) geometry = { cols: Math.min(GEOMETRY.maxCols, Math.max(GEOMETRY.minCols, actual.cols)), rows: Math.min(GEOMETRY.maxRows, Math.max(GEOMETRY.minRows, actual.rows)) };
+      } catch {
+        /* a snapshot we cannot read is not a reason to refuse the stream */
+      }
+    }
+    let terminal;
+    try {
+      terminal = spawnTerminal({ paneId, ...geometry, bin: herdrBin });
+    } catch (error) {
+      return sendJson(res, 500, { error: { code: 'terminal_unavailable', message: error.message } });
+    }
+    res.writeHead(200, {
+      ...SECURITY_HEADERS,
+      'content-type': 'text/event-stream; charset=utf-8',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    res.write(': connected\n\n');
+
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), HEARTBEAT_MS);
+    const send = (event, data) => {
+      if (res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const finish = (reason) => {
+      clearInterval(heartbeat);
+      terminals.delete(entry);
+      send('closed', { reason });
+      if (!res.writableEnded) res.end();
+    };
+    const entry = { terminal, finish };
+    terminals.add(entry);
+
+    terminal.on('frame', (frame) => send('frame', frame));
+    terminal.on('error', (error) => {
+      send('error', { message: error.message });
+      finish(error.message);
+    });
+    terminal.on('closed', (info) => finish(info?.reason ?? 'closed'));
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      terminals.delete(entry);
+      terminal.stop();
+    });
+    res.on('error', () => terminal.stop());
+    terminal.start();
+  }
+
   function serveStatic(req, res, pathname) {
     const segments = pathname.split('/').filter(Boolean).map((segment) => decodeURIComponent(segment));
     if (segments.some((segment) => segment === '..' || segment.includes('/') || segment.includes('\\') || segment.includes('\0'))) {
@@ -151,10 +228,25 @@ export function createServer({ api, token, webRoot, secureCookies = false }) {
       stream.res.end();
     }
     streams.clear();
+    for (const entry of terminals) entry.terminal.stop();
+    terminals.clear();
     await new Promise((resolve) => server.close(resolve));
   }
 
-  return { server, broadcast, close, streamCount: () => streams.size };
+  return { server, broadcast, close, streamCount: () => streams.size, terminalCount: () => terminals.size };
+}
+
+/** `/api/pane/w1:p1/terminal` → `w1:p1`, or null when it is another route. */
+function terminalRoute(pathname) {
+  const match = /^\/api\/pane\/([^/]+)\/terminal$/.exec(pathname);
+  if (!match) return null;
+  let paneId;
+  try {
+    paneId = decodeURIComponent(match[1]);
+  } catch {
+    return 'invalid';
+  }
+  return PANE_ID.test(paneId) ? paneId : 'invalid';
 }
 
 function readBody(req) {

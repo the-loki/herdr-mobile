@@ -3,6 +3,7 @@ import { tailPath } from '../lib/domain.js';
 import { Composer } from './Composer.jsx';
 import { Conversation } from './Conversation.jsx';
 import { MenuChooser } from './MenuChooser.jsx';
+import { TerminalView } from './TerminalView.jsx';
 import { useTranscript } from '../hooks/useTranscript.js';
 import { StatusChip } from './PaneRow.jsx';
 
@@ -47,11 +48,21 @@ export function PaneDetail({
 }) {
   const outputRef = useRef(null);
   const [stick, setStick] = useState(true);
+  // The terminal tab is a real terminal fed by herdr's frame stream; the polled
+  // text only takes over when that bridge is missing on this host.
+  const [termState, setTermState] = useState('connecting');
+  const [termScreen, setTermScreen] = useState('');
   // The agent's own log is the default view when herdr reports one; the raw
   // screen stays one tap away for menus, approvals and anything unparsed.
   const hasTranscript = Boolean(pane?.agent_session);
   const [tab, setTab] = useState(null);
   const activeTab = tab ?? (hasTranscript ? 'conversation' : 'terminal');
+  useEffect(() => {
+    setTab(null);
+    setTermState('connecting');
+    setTermScreen('');
+  }, [pane?.id]);
+
   const transcript = useTranscript(pane?.id, {
     enabled: hasTranscript,
     agentStatus: pane?.agent_status,
@@ -62,7 +73,7 @@ export function PaneDetail({
     const node = outputRef.current;
     if (!node || !stick) return;
     node.scrollTop = node.scrollHeight;
-  }, [text, stick]);
+  }, [text, stick, termState]);
 
   const onScroll = () => {
     const node = outputRef.current;
@@ -138,34 +149,50 @@ export function PaneDetail({
         <Conversation transcript={transcript} paneLabel={pane.title || pane.agent} />
       ) : null}
 
-      <div className={`relative min-h-0 min-w-0 flex-1 ${activeTab === 'terminal' ? 'flex' : 'hidden'}`}>
-        <pre
-          ref={outputRef}
-          onScroll={onScroll}
-          onClick={(event) => {
-            // Selecting text to copy must win over choosing a menu row.
-            if (!window.getSelection()?.isCollapsed) return;
-            const row = rowFromPoint(event.currentTarget, event.clientX, event.clientY);
-            if (row !== null) onTapRow(row);
-          }}
-          className="pane-text m-0 flex-1 overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 font-mono text-[12.5px] leading-[1.35] md:whitespace-pre md:break-normal"
-        >
-          {error ? `Could not read this pane.\n\n${error.message}` : text || 'Loading…'}
-        </pre>
-        {!stick ? (
-          <button
-            type="button"
-            onClick={() => {
-              const node = outputRef.current;
-              setStick(true);
-              if (node) node.scrollTop = node.scrollHeight;
-            }}
-            className="absolute bottom-3 right-3 h-9 rounded-lg border border-line bg-raised px-3 text-[13px]"
-          >
-            Jump to latest ↓
-          </button>
-        ) : null}
-      </div>
+      {activeTab === 'terminal' ? (
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {termState === 'unavailable' ? (
+            <>
+              <pre
+                ref={outputRef}
+                onScroll={onScroll}
+                onClick={(event) => {
+                  // Selecting text to copy must win over choosing a menu row.
+                  if (!window.getSelection()?.isCollapsed) return;
+                  const row = rowFromPoint(event.currentTarget, event.clientX, event.clientY);
+                  if (row !== null) onTapRow(row);
+                }}
+                className="pane-text m-0 flex-1 overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 font-mono text-[12.5px] leading-[1.35] md:whitespace-pre md:break-normal"
+              >
+                {error ? `Could not read this pane.\n\n${error.message}` : text || 'Loading…'}
+              </pre>
+              {!stick ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const node = outputRef.current;
+                    setStick(true);
+                    if (node) node.scrollTop = node.scrollHeight;
+                  }}
+                  className="absolute bottom-3 right-3 h-9 rounded-lg border border-line bg-raised px-3 text-[13px]"
+                >
+                  Jump to latest ↓
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <TerminalView paneId={pane.id} onScreen={setTermScreen} onState={setTermState} />
+              {/* The same screen as text, so menus stay tappable and nothing has
+                  to guess what is drawn: xterm's buffer is the authoritative
+                  screen here. */}
+              <pre data-testid="terminal-screen" className="sr-only">
+                {termScreen}
+              </pre>
+            </>
+          )}
+        </div>
+      ) : null}
 
       <MenuChooser menu={menu} onChoose={onTapRow} />
 

@@ -47,11 +47,11 @@ const step = async (name, run) => {
       const posts = apiTraffic.filter((entry) => entry.method === 'POST');
       const state = await currentPage
         .evaluate(() => ({
-          textarea: document.querySelector('textarea')?.value,
+          textarea: document.querySelector('[data-testid="composer-input"]')?.value,
           hash: window.location.hash,
           toast: document.querySelector('[data-testid="toast"]')?.textContent ?? null,
           menuRows: document.querySelectorAll('[data-testid="menu-option"]').length,
-          tail: (document.querySelector('pre')?.textContent ?? '').split('\n').slice(-6),
+          tail: (([...document.querySelectorAll('[data-testid="terminal-screen"], pre')].map((node) => node.textContent ?? '').join('\n'))).split('\n').slice(-6),
         }))
         .catch(() => null);
       console.log(`  dom: ${JSON.stringify(state)}`);
@@ -131,7 +131,7 @@ async function click(page, selector) {
  */
 async function tapRowContaining(page, needle) {
   const point = await page.evaluate((text) => {
-    const pre = document.querySelector('pre');
+    const pre = document.querySelector('[data-testid="terminal-screen"], pre');
     const value = pre?.textContent ?? '';
     const lines = value.split('\n');
     const row = lines.findIndex((line) => line.includes(text));
@@ -177,32 +177,61 @@ async function typeInto(page, text) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await page.waitForSelector('textarea', { timeout: 15000 });
     await page.focus('textarea');
-    await page.$eval('textarea', (node) => {
+    await page.$eval('[data-testid="composer-input"]', (node) => {
       node.select();
     });
     await page.keyboard.type(text);
-    const value = await page.$eval('textarea', (node) => node.value);
+    const value = await page.$eval('[data-testid="composer-input"]', (node) => node.value);
     if (value === text) return;
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
-  const value = await page.$eval('textarea', (node) => node.value);
+  const value = await page.$eval('[data-testid="composer-input"]', (node) => node.value);
   assert.equal(value, text, 'the reply box holds what was typed');
 }
 
-const preText = (page) => page.$eval('pre', (node) => node.textContent ?? '').catch(() => '');
+const preText = (page) =>
+  page
+    .evaluate(() =>
+      [...document.querySelectorAll('[data-testid="terminal-screen"], pre')]
+        .map((node) => node.textContent ?? '')
+        .join('\n'),
+    )
+    .catch(() => '');
 
 /** Send a shell command and wait for its own echo, retrying once on a race with the previous command. */
+const squash = (value) => value.replace(/\s+/g, '');
+
+/** Wait until the pane shows `needle`, wherever a narrow terminal wrapped it. */
+async function screenHas(page, needle, { timeout = 15000 } = {}) {
+  const wanted = squash(needle);
+  await page.waitForFunction(
+    (target) =>
+      [...document.querySelectorAll('[data-testid="terminal-screen"], pre')]
+        .map((node) => node.textContent ?? '')
+        .join('\n')
+        .replace(/\s+/g, '')
+        .includes(target),
+    { timeout },
+    wanted,
+  );
+}
+
 async function runInPane(page, command, { timeout = 20000 } = {}) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await typeInto(page, command);
-    await clickByText(page, 'Send');
-    const deadline = Date.now() + (attempt === 0 ? timeout : timeout / 2);
-    while (Date.now() < deadline) {
-      if ((await preText(page)).includes(command)) return;
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
+  // One attempt only: typing a shell command twice is how "y" ends up inside the
+  // command line, so a miss must fail loudly instead of polluting the pane.
+  await typeInto(page, command);
+  await clickByText(page, 'Send');
+  const tail = squash(command).slice(-24);
+  const deadline = Date.now() + timeout;
+  let seen = '';
+  while (Date.now() < deadline) {
+    seen = await preText(page);
+    if (squash(seen).includes(squash(command)) || squash(seen).includes(tail)) return;
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error(`the pane never echoed ${JSON.stringify(command)}; last text ${JSON.stringify((await preText(page)).slice(-200))}`);
+  throw new Error(
+    `the pane never echoed ${JSON.stringify(command)}; screen was ${JSON.stringify(seen.slice(-1200))}`,
+  );
 }
 
 async function waitForText(page, needle, { timeout = 15000 } = {}) {
@@ -273,11 +302,29 @@ try {
     );
   });
 
-  await step('opening the pi pane renders its live screen', async () => {
+  await step('opening the pi pane renders its live screen in a real terminal', async () => {
     await clickByText(page, 'pi');
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').length > 40, { timeout: 15000 });
-    const text = await page.$eval('pre', (node) => node.textContent);
+    // A pane with a transcript opens on 对话; the screen is one tap away.
+    const tabs = await page.$$eval('[role="tab"]', (nodes) => nodes.map((node) => node.textContent));
+    if (tabs.includes('终端')) await clickByText(page, '终端');
+    await page.waitForFunction(() => (([...document.querySelectorAll('[data-testid="terminal-screen"], pre')].map((node) => node.textContent ?? '').join('\n'))).length > 40, { timeout: 20000 });
+    const text = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="terminal-screen"], pre')]
+        .map((node) => node.textContent ?? '')
+        .join('\n'),
+    );
     assert.match(text, /pi|π/i, 'pane text mentions the agent');
+
+    // The terminal is fed by herdr's frame stream: xterm is mounted and the
+    // "no bridge" fallback is not showing.
+    const terminal = await page.evaluate(() => ({
+      xterm: Boolean(document.querySelector('[data-testid="terminal"] .xterm')),
+      rows: document.querySelectorAll('[data-testid="terminal"] .xterm-rows > div').length,
+      fellBack: document.body.innerText.includes('没有终端帧桥'),
+    }));
+    assert.ok(terminal.xterm, 'xterm is mounted for the pane');
+    assert.ok(terminal.rows > 0, 'xterm has rows to render into');
+    assert.equal(terminal.fellBack, false, 'the frame stream is live, not the text fallback');
     await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-detail.png') });
   });
 
@@ -316,7 +363,7 @@ try {
 
     // Choosing the fourth row must become three Downs plus Enter.
     await clickByText(page, 'delta');
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('CHOSE:delta'), {
+    await page.waitForFunction(() => (([...document.querySelectorAll('[data-testid="terminal-screen"], pre')].map((node) => node.textContent ?? '').join('\n'))).includes('CHOSE:delta'), {
       timeout: 15000,
     });
     await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-menu-chosen.png') });
@@ -338,7 +385,7 @@ try {
       opened = await page
         .waitForFunction(
           () => {
-            const text = document.querySelector('pre')?.textContent ?? '';
+            const text = ([...document.querySelectorAll('[data-testid="terminal-screen"], pre')].map((node) => node.textContent ?? '').join('\n'));
             return text.includes('Open settings menu') && text.includes('Navigate session tree');
           },
           { timeout: 6000 },
@@ -360,7 +407,7 @@ try {
     await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-pi-palette.png') });
 
     await clickByText(page, 'model');
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('Enter to select'), {
+    await page.waitForFunction(() => (([...document.querySelectorAll('[data-testid="terminal-screen"], pre')].map((node) => node.textContent ?? '').join('\n'))).includes('Enter to select'), {
       timeout: 20000,
     });
     await clickByText(page, 'Esc', { exact: true });
@@ -434,7 +481,7 @@ try {
 
     // The raw screen is still one tap away.
     await clickByText(page, '终端');
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').length > 40, { timeout: 20000 });
+    await page.waitForFunction(() => (([...document.querySelectorAll('[data-testid="terminal-screen"], pre')].map((node) => node.textContent ?? '').join('\n'))).length > 40, { timeout: 20000 });
     await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-conversation-terminal.png') });
   });
 
@@ -483,7 +530,7 @@ try {
     await typeInto(page, marker);
     await clickByText(page, 'Send');
     await new Promise((resolve) => setTimeout(resolve, 300));
-    const cleared = await page.$eval('textarea', (node) => node.value);
+    const cleared = await page.$eval('[data-testid="composer-input"]', (node) => node.value);
     assert.equal(cleared, '', 'clicking Send runs the handler and clears the box');
     let seen = '';
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -531,28 +578,24 @@ try {
     const loop = 'for i in 1 2 3 4 5; do echo tick-$i; sleep 0.6; done';
     await typeInto(page, loop);
     await clickByText(page, 'Send');
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('tick-5'), {
-      timeout: 20000,
-    });
-    const text = await page.$eval('pre', (node) => node.textContent);
+    await screenHas(page, 'tick-5', { timeout: 20000 });
+    const text = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="terminal-screen"], pre')]
+        .map((node) => node.textContent ?? '')
+        .join('\n'),
+    );
     assert.ok(text.indexOf('tick-1') < text.indexOf('tick-5'), 'the pane grew from tick-1 to tick-5 in place');
     await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-live.png') });
   });
 
   await step('an approval prompt is answered from the key strip', async () => {
     // Wait for the previous loop to give the shell back before asking a question.
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('tick-5'), {
-      timeout: 20000,
-    });
+    await screenHas(page, 'tick-5', { timeout: 20000 });
     await runInPane(page, `printf 'Continue? (y/n) '; read answer; echo "answered:$answer"`);
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('Continue? (y/n)'), {
-      timeout: 15000,
-    });
+    await screenHas(page, 'Continue? (y/n)');
     await clickByText(page, 'y', { exact: true });
     await clickByText(page, '⏎', { exact: true });
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('answered:y'), {
-      timeout: 15000,
-    });
+    await screenHas(page, 'answered:y');
     await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-approval.png') });
   });
 
@@ -563,7 +606,7 @@ try {
     // 30 s sleep could have finished on its own.
     await typeInto(page, 'echo after-interrupt');
     await clickByText(page, 'Send');
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('after-interrupt'), {
+    await page.waitForFunction(() => (([...document.querySelectorAll('[data-testid="terminal-screen"], pre')].map((node) => node.textContent ?? '').join('\n'))).includes('after-interrupt'), {
       timeout: 10000,
     });
   });
@@ -576,9 +619,23 @@ try {
     assert.ok(columns.split(' ').length >= 2, `desktop grid has two columns (${columns})`);
     await waitForText(page, 'demo');
     // No hash in the URL: a wide screen should land on the pane that needs you.
-    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').length > 40, { timeout: 20000 });
-    const picked = await page.$eval('pre', (node) => node.textContent.length);
-    assert.ok(picked > 40, 'a pane was opened automatically on the desktop layout');
+    // A pane with a transcript lands on its conversation, so "showing something"
+    // means a message, a tool card, or a terminal screen — not a <pre>.
+    await page.waitForFunction(
+      () =>
+        Boolean(
+          document.querySelector(
+            '[data-testid="assistant-text"], [data-testid="tool-card"], [data-testid="terminal-screen"]',
+          ),
+        ),
+      { timeout: 20000 },
+    );
+    const shown = await page.evaluate(() =>
+      ['assistant-text', 'tool-card', 'terminal-screen']
+        .map((id) => document.querySelector(`[data-testid="${id}"]`)?.textContent?.length ?? 0)
+        .reduce((sum, size) => sum + size, 0),
+    );
+    assert.ok(shown > 20, 'a pane was opened automatically on the desktop layout');
     await page.screenshot({ path: path.join(ARTIFACTS, 'desktop.png') });
   });
 

@@ -68,6 +68,7 @@ export function Composer({ disabled, onSend, onKey, choices = [], hint = '', onC
       <div className="flex items-stretch gap-2">
         <textarea
           ref={inputRef}
+          data-testid="composer-input"
           value={text}
           rows={2}
           disabled={disabled}

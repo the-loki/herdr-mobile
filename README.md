@@ -28,6 +28,7 @@ Captured by `container/run-e2e.sh` from a real herdr session running `pi`.
 | ![An approval prompt answered with the key strip](docs/media/mobile-approval.png) | |
 | ![A menu drawn in the pane, offered as tappable options](docs/media/mobile-menu.png) | |
 | ![The agent's own conversation, with a tool card](docs/media/mobile-conversation.png) | |
+| ![The pane's real screen, drawn by herdr's frame stream](docs/media/mobile-terminal.png) | |
 
 ## Quick start
 
@@ -96,6 +97,11 @@ systemctl --user enable --now herdr-web
   their arguments and output, read from the agent's own transcript
   ([ADR 0008](docs/adr/0008-read-the-transcript-not-the-screen.md)). A `终端`
   tab keeps the raw screen for menus and anything unparsed.
+- **A real terminal, not a text dump.** The 终端 tab renders the pane's own
+  screen through herdr's frame stream into xterm: colours, box drawing, glyphs,
+  at the pane's real geometry. Watching never resizes the pane, so the person at
+  the desk is not disturbed
+  ([ADR 0009](docs/adr/0009-a-real-terminal-from-herdrs-frames.md)).
 - **Agents first.** The list is ordered by what needs you: `blocked`, then
   `working`, then `done`, then `idle`, grouped by workspace and tab.
 - **Live-ish pane text.** The open pane refreshes while the tab is visible.
@@ -152,6 +158,7 @@ docker run --rm -v "$PWD:/work" -v "$HOME/.pi/agent:/pi-src:ro" \
 ```
 herdr-plugin.toml        plugin manifest: build steps, actions, panes
 src/transcript.mjs       reads an agent's own session file (pi adapter today)
+src/terminal.mjs         relays the pane's ANSI frames from `herdr terminal session observe`
 src/main.mjs             CLI: config, serve, print the pairing link
 src/app.mjs              wires client + API + server + event bridge
 src/herdr.mjs            herdr socket client (one request per connection)
