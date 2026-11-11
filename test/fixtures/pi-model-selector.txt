@@ -1,0 +1,40 @@
+[Prompts]
+  /council, /gather-context-and-clarify, /parallel-cleanup, /parallel-research, /parallel-review, /review-loop
+
+[Extensions]
+  @ff-labs/pi-fff:src, @juicesharp/rpiv-ask-user-question, @juicesharp/rpiv-todo, @narumitw/pi-btw:dist,
+@narumitw/pi-goal:dist, @narumitw/pi-lsp:dist, @narumitw/pi-plan-mode:dist, @ollama/pi-web-search, overwrite_env,
+pi-autoresearch:pi-autoresearch, pi-background-tasks:dist/extensions/anthropic-attribution.js,
+pi-background-tasks:dist/extensions/background-tasks.js, pi-subagents:bundle
+
+
+ Warning: MCP servers need attention:
+   codegraph: failed: spawn /home/loki/.local/bin/codegraph ENOENT
+ Run /mcp to fix.
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+
+>
+
+→ ✓ deepseek-v4.1-flash:1017-cloud [ollama-corp] · default
+    deepseek/deepseek-v4.1-flash (DeepSeek V4.1 Flash (Command Code)) [commandcode]
+    deepseek-v4.1-flash:1017-cloud [ollama]
+    mimo-v2.6-flash:cloud [ollama-corp]
+    claude-haiku-5-5 [opencode-go]
+    minimax-m3 [opencode-go]
+    qwen3.7-plus [opencode-go]
+    qwen3.8-flash [opencode-go]
+    qwen3.8-max [opencode-go]
+    gemini-4-argon [opencode-go]
+  (1/36)
+
+  Model Name: deepseek-v4.1-flash:1017-cloud
+
+  Model catalogs refreshed.
+
+  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/proj
+0.0%/500k (auto)                                                     (ollama-corp) deepseek-v4.1-flash:1017-cloud • max

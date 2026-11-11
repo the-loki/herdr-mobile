@@ -92,10 +92,12 @@ test('POST input submits text and Enter in one herdr request', async () => {
   });
 });
 
-test('POST input without submit types the text and leaves Enter out', async () => {
+test('POST input without submit types the text, like a keyboard, and leaves Enter out', async () => {
+  // herdr's send_input pastes (bracketed), which does not open a TUI's typing
+  // menus; send_text writes the bytes as if typed. Drafting must type.
   const client = stubClient();
   await call(client, 'POST', '/api/pane/w1:p1/input', { text: 'draft only', submit: false });
-  assert.deepEqual(client.calls[0].params, { pane_id: 'w1:p1', text: 'draft only' });
+  assert.deepEqual(client.calls[0], { method: 'pane.send_text', params: { pane_id: 'w1:p1', text: 'draft only' } });
 });
 
 test('POST input can send keys alone', async () => {

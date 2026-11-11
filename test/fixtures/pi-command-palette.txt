@@ -1,0 +1,40 @@
+
+ ▀▀█  v1.5.2
+ █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
+
+
+[Context]
+  ~/.pi/agent/AGENTS.md
+
+[Skills]
+  autoresearch-create, autoresearch-finalize, autoresearch-hooks, council-mode, pi-subagents
+
+[Prompts]
+  /council, /gather-context-and-clarify, /parallel-cleanup, /parallel-research, /parallel-review, /review-loop
+
+[Extensions]
+  @ff-labs/pi-fff:src, @juicesharp/rpiv-ask-user-question, @juicesharp/rpiv-todo, @narumitw/pi-btw:dist,
+@narumitw/pi-goal:dist, @narumitw/pi-lsp:dist, @narumitw/pi-plan-mode:dist, @ollama/pi-web-search, overwrite_env,
+pi-autoresearch:pi-autoresearch, pi-background-tasks:dist/extensions/anthropic-attribution.js,
+pi-background-tasks:dist/extensions/background-tasks.js, pi-subagents:bundle
+
+
+ Warning: MCP servers need attention:
+   codegraph: failed: spawn /home/loki/.local/bin/codegraph ENOENT
+ Run /mcp to fix.
+
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+→ settings                        Open settings menu
+  model                           <provider/model> — Select model (opens selector UI)
+  tree                            Navigate session tree (switch branches)
+  thinking                        <level> — Set thinking level
+  scoped-models                   Enable/disable models for Ctrl+P cycling
+  (1/73)
+/tmp/proj
+0.0%/500k (auto)                                                     (ollama-corp) deepseek-v4.1-flash:1017-cloud • max

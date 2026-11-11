@@ -47,5 +47,15 @@ conflicts with a casual reading, this file wins.
   to `idle`.
 - **viewport poll** — the browser re-reading the open pane with `visible` every
   1.2 s while the tab is visible.
+- **drawn menu** — a set of rows an agent painted into the pane to be chosen from:
+  a highlight marker (`→`, `❯`), optional numbers, optional checkboxes, and a
+  description column. There is no API for it; it is read back out of the text.
+- **chooser** — the client's rendering of a drawn menu as real buttons. Tapping
+  one sends the keystrokes that land on that row.
+- **plan** — the keystrokes a tap turns into: a digit for a numbered menu, `Space`
+  to toggle a checkbox, otherwise `Down`/`Up` by the row distance plus `Enter`.
+- **typed vs pasted input** — `pane.send_text` writes bytes as if typed (this is
+  what opens an agent's completion menu); `pane.send_input` pastes, bracketed.
+  Drafting uses the former, submitting uses the latter.
 - **allowlist** — the herdr methods `src/api.mjs` is willing to call. Anything
   else is unreachable from the browser.

@@ -27,6 +27,8 @@ const MOBILE = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, 
 const DESKTOP = { width: 1440, height: 900, deviceScaleFactor: 1 };
 
 const results = [];
+const consoleErrors = [];
+const apiTraffic = [];
 let currentPage = null;
 const step = async (name, run) => {
   const started = Date.now();
@@ -42,6 +44,18 @@ const step = async (name, run) => {
       const text = await currentPage.evaluate(() => document.body.innerText).catch(() => '(page unavailable)');
       const shot = path.join(ARTIFACTS, 'failure.png');
       await currentPage.screenshot({ path: shot }).catch(() => {});
+      const posts = apiTraffic.filter((entry) => entry.method === 'POST');
+      const state = await currentPage
+        .evaluate(() => ({
+          textarea: document.querySelector('textarea')?.value,
+          hash: window.location.hash,
+          toast: document.querySelector('[data-testid="toast"]')?.textContent ?? null,
+          menuRows: document.querySelectorAll('[data-testid="menu-option"]').length,
+          tail: (document.querySelector('pre')?.textContent ?? '').split('\n').slice(-6),
+        }))
+        .catch(() => null);
+      console.log(`  dom: ${JSON.stringify(state)}`);
+      console.log(`  posts: ${posts.map((p) => `${p.url} ${p.body}`).join(' ; ') || '(none)'}`);
       console.log(`  page text:\n${text.split('\n').slice(0, 20).map((line) => `    ${line}`).join('\n')}`);
       console.log(`  screenshot: ${shot}`);
     }
@@ -111,6 +125,54 @@ async function click(page, selector) {
   await clickHandle(page, element, selector);
 }
 
+/**
+ * Tap a rendered line of the pane like a finger would: find the row's text, turn
+ * it into a client rect with a Range, and click its centre.
+ */
+async function tapRowContaining(page, needle) {
+  const point = await page.evaluate((text) => {
+    const pre = document.querySelector('pre');
+    const value = pre?.textContent ?? '';
+    const lines = value.split('\n');
+    const row = lines.findIndex((line) => line.includes(text));
+    if (row === -1) return null;
+
+    let offset = 0;
+    for (let index = 0; index < row; index += 1) offset += lines[index].length + 1;
+
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    const node = walker.nextNode();
+    if (!node) return null;
+
+    const range = document.createRange();
+    range.setStart(node, Math.min(offset, node.data.length));
+    range.setEnd(node, Math.min(offset + Math.max(1, lines[row].length), node.data.length));
+    const rect = range.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return { x: rect.left + Math.min(rect.width / 2, 60), y: rect.top + rect.height / 2 };
+  }, needle);
+
+  assert.ok(point, `the pane shows a row containing ${JSON.stringify(needle)}`);
+  await page.mouse.click(point.x, point.y);
+}
+
+/** Wait until the pane stops changing: a TUI that is still booting swallows keys. */
+async function waitForStablePane(page, { quietMs = 1500, timeout = 30000 } = {}) {
+  const deadline = Date.now() + timeout;
+  let previous = null;
+  let stableSince = Date.now();
+  while (Date.now() < deadline) {
+    const current = await preText(page);
+    if (current !== previous) {
+      previous = current;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= quietMs) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 async function typeInto(page, text) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await page.waitForSelector('textarea', { timeout: 15000 });
@@ -160,8 +222,6 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   currentPage = page;
-  const consoleErrors = [];
-  const apiTraffic = [];
   page.on('request', (request) => {
     if (!request.url().includes('/api/')) return;
     apiTraffic.push({ phase: 'request', method: request.method(), url: request.url().replace(BASE, ''), body: request.postData() ?? null });
@@ -219,6 +279,91 @@ try {
     const text = await page.$eval('pre', (node) => node.textContent);
     assert.match(text, /pi|π/i, 'pane text mentions the agent');
     await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-detail.png') });
+  });
+
+  await step('a menu drawn in the pane becomes tappable options', async () => {
+    // A controlled TUI menu (container/menu-tui.mjs): marker row, four options,
+    // Enter chooses. Deterministic, unlike waiting for an agent's boot screen.
+    const before = new Set((await stateFromApi()).panes.map((pane) => pane.id));
+    await click(page, 'button[aria-label="Pane actions"]');
+    await clickByText(page, 'Split down');
+    await page.waitForSelector('dialog[open] input');
+    // Absolute path: a new pane inherits the workspace cwd, not this repository.
+    await page.type('dialog[open] input', 'node /work/container/menu-tui.mjs');
+    await click(page, 'dialog[open] button[type="submit"]');
+
+    let menuPane = null;
+    for (let attempt = 0; attempt < 40 && !menuPane; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      menuPane = (await stateFromApi()).panes.find((pane) => !before.has(pane.id)) ?? null;
+    }
+    assert.ok(menuPane, 'the split created a new pane');
+
+    await click(page, 'button[aria-label="Show session list"]');
+    await page.waitForSelector(`[data-pane-id="${menuPane.id}"]`, { timeout: 15000 });
+    await click(page, `[data-pane-id="${menuPane.id}"]`);
+    await page.waitForSelector('[data-testid="menu-option"]', { timeout: 20000 });
+
+    const rows = await page.$$eval('[data-testid="menu-option"]', (nodes) =>
+      nodes.map((node) => ({ text: node.textContent.replace(/\s+/g, ' ').trim(), selected: node.className.includes('border-accent') })),
+    );
+    assert.equal(rows.length, 4, `all four options are offered (${rows.map((row) => row.text).join(' | ')})`);
+    for (const label of ['alpha', 'bravo', 'charlie', 'delta']) {
+      assert.ok(rows.some((row) => row.text.includes(label)), `${label} is offered`);
+    }
+    assert.equal(rows[0].selected, true, 'the highlighted row is shown as selected');
+    await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-menu.png') });
+
+    // Choosing the fourth row must become three Downs plus Enter.
+    await clickByText(page, 'delta');
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('CHOSE:delta'), {
+      timeout: 15000,
+    });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-menu-chosen.png') });
+  });
+
+  await step('the same tap works on a real pi command palette (opportunistic)', async () => {
+    const piPane = (await stateFromApi()).panes.find((pane) => pane.agent === 'pi');
+    if (!piPane) return;
+    await click(page, 'button[aria-label="Show session list"]');
+    await click(page, `[data-pane-id="${piPane.id}"]`);
+
+    // pi ignores keys until it has finished drawing its first screen, so retry the
+    // "/" a few times rather than pinning the suite to its boot time.
+    let opened = false;
+    for (let attempt = 0; attempt < 3 && !opened; attempt += 1) {
+      await waitForStablePane(page, { quietMs: 2000 });
+      await typeInto(page, '/');
+      await clickByText(page, 'Type only');
+      opened = await page
+        .waitForFunction(
+          () => {
+            const text = document.querySelector('pre')?.textContent ?? '';
+            return text.includes('Open settings menu') && text.includes('Navigate session tree');
+          },
+          { timeout: 6000 },
+        )
+        .then(() => true)
+        .catch(() => false);
+      if (!opened) {
+        await clickByText(page, 'Esc', { exact: true });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+    if (!opened) {
+      console.log('  (skipped: pi never offered its palette in this run)');
+      return;
+    }
+
+    const offered = await page.$$eval('[data-testid="menu-option"]', (nodes) => nodes.length);
+    assert.ok(offered >= 4, `pi's palette is offered as ${offered} options`);
+    await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-pi-palette.png') });
+
+    await clickByText(page, 'model');
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').includes('Enter to select'), {
+      timeout: 20000,
+    });
+    await clickByText(page, 'Esc', { exact: true });
   });
 
   await step('typing from the phone reaches the pane (Type only, no submit)', async () => {

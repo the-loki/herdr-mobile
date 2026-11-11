@@ -1,10 +1,48 @@
 import { useEffect, useRef, useState } from 'react';
 import { tailPath } from '../lib/domain.js';
 import { Composer } from './Composer.jsx';
+import { MenuChooser } from './MenuChooser.jsx';
 import { StatusChip } from './PaneRow.jsx';
 
+/** Which rendered row the tap landed on, so a menu row can be chosen by touch. */
+function rowFromPoint(container, x, y) {
+  let offset = null;
+  if (typeof document.caretPositionFromPoint === 'function') {
+    const position = document.caretPositionFromPoint(x, y);
+    if (position && position.offsetNode !== container && container.contains(position.offsetNode)) {
+      offset = position.offset;
+    }
+  } else if (typeof document.caretRangeFromPoint === 'function') {
+    const range = document.caretRangeFromPoint(x, y);
+    if (range && range.startContainer !== container && container.contains(range.startContainer)) {
+      offset = range.startOffset;
+    }
+  }
+  if (offset === null) return null;
+
+  const value = container.textContent ?? '';
+  let row = 0;
+  for (let index = 0; index < offset && index < value.length; index += 1) {
+    if (value[index] === '\n') row += 1;
+  }
+  return row;
+}
+
 /** The open pane: header, live text, reply box. */
-export function PaneDetail({ pane, paneMissing, text, error, workspace, onBack, onSend, onKey, onMenu }) {
+export function PaneDetail({
+  pane,
+  paneMissing,
+  text,
+  error,
+  workspace,
+  menu,
+  onBack,
+  onSend,
+  onKey,
+  onMenu,
+  onTapRow,
+  onChoice,
+}) {
   const outputRef = useRef(null);
   const [stick, setStick] = useState(true);
 
@@ -67,6 +105,12 @@ export function PaneDetail({ pane, paneMissing, text, error, workspace, onBack, 
         <pre
           ref={outputRef}
           onScroll={onScroll}
+          onClick={(event) => {
+            // Selecting text to copy must win over choosing a menu row.
+            if (!window.getSelection()?.isCollapsed) return;
+            const row = rowFromPoint(event.currentTarget, event.clientX, event.clientY);
+            if (row !== null) onTapRow(row);
+          }}
           className="pane-text m-0 flex-1 overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 font-mono text-[12.5px] leading-[1.35] md:whitespace-pre md:break-normal"
         >
           {error ? `Could not read this pane.\n\n${error.message}` : text || 'Loading…'}
@@ -86,7 +130,25 @@ export function PaneDetail({ pane, paneMissing, text, error, workspace, onBack, 
         ) : null}
       </div>
 
-      <Composer disabled={false} onSend={onSend} onKey={onKey} />
+      <MenuChooser menu={menu} onChoose={onTapRow} />
+
+      <Composer
+        disabled={false}
+        onSend={onSend}
+        onKey={onKey}
+        choices={menu?.kind === 'confirm' ? [
+          { label: 'Yes', keys: [menu.confirm.yes, 'Enter'] },
+          { label: 'No', keys: [menu.confirm.no, 'Enter'] },
+        ] : []}
+        hint={
+          menu?.kind === 'list'
+            ? '' // the chooser above already lists the options
+            : menu?.kind === 'confirm'
+              ? `等待确认：${menu.confirm.question.trim().slice(-40)}`
+              : ''
+        }
+        onChoice={onChoice}
+      />
     </div>
   );
 }

@@ -175,9 +175,15 @@ async function postInput({ client, params, body, writeToPane }) {
     return ok({ ok: true });
   }
   if (text) {
-    const keysToSend = body.submit ? ['Enter'] : undefined;
+    if (!body.submit) {
+      // Drafting has to feel like a keyboard: send_text writes the bytes as if
+      // typed, while send_input pastes them (bracketed), and a TUI only opens
+      // its completion menus for typed text.
+      await writeToPane(params.paneId, () => client.rpc('pane.send_text', { pane_id: params.paneId, text }));
+      return ok({ ok: true });
+    }
     await writeToPane(params.paneId, () =>
-      client.rpc('pane.send_input', compact({ pane_id: params.paneId, text, keys: keysToSend })),
+      client.rpc('pane.send_input', { pane_id: params.paneId, text, keys: ['Enter'] }),
     );
     return ok({ ok: true });
   }

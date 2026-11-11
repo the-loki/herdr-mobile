@@ -5,6 +5,7 @@ import { PaneDetail } from './components/PaneDetail.jsx';
 import { PaneList } from './components/PaneList.jsx';
 import { useHashPane, useHerdrStream, usePaneText, useSnapshot } from './hooks/useHerdr.js';
 import { paneLabel, sortByAttention, workspaceLabel } from './lib/domain.js';
+import { parsePaneUi, planTap } from './lib/intent.js';
 
 export default function App() {
   const { data, error, reload } = useSnapshot();
@@ -95,6 +96,19 @@ export default function App() {
       setTimeout(refresh, 250);
     });
 
+  // Tapping a row in the pane is a choice: translate it into the keystrokes the
+  // agent's own menu expects (arrows, a digit, space) instead of making the user
+  // find the right key on a key strip.
+  const tapRow = async (row) => {
+    const plan = planTap(text, row);
+    if (!plan) {
+      say('这一行不是可选项');
+      return;
+    }
+    await sendKeys(plan.keys);
+    say(plan.note);
+  };
+
   const newWorkspace = async () => {
     const label = await ask('New workspace', 'Leave the name empty to let herdr pick one.');
     if (label === null) return;
@@ -127,7 +141,10 @@ export default function App() {
       const direction = action === 'split-right' ? 'right' : 'down';
       const command = await ask('Split pane', `Optional command to run in the new ${direction} pane (for example pi).`);
       if (command === null) return;
-      await guarded(() => api.splitPane(paneId, direction, command), command ? `Started ${command}` : 'Pane split');
+      await guarded(
+        () => api.splitPane(paneId, direction, command),
+        command ? `Started ${command.length > 24 ? `${command.slice(0, 24)}…` : command}` : 'Pane split',
+      );
     } else if (action === 'load-more') {
       const lines = Math.min(2000, (readMode.lines ?? 80) + 200);
       setReadMode({ source: 'recent', lines });
@@ -152,6 +169,8 @@ export default function App() {
     document.documentElement.dataset.theme = next;
     localStorage.setItem('hmw-theme', next);
   };
+
+  const menu = useMemo(() => parsePaneUi(text), [text]);
 
   const banner = error
     ? error.status === 401
@@ -232,9 +251,12 @@ export default function App() {
             error={paneError}
             workspace={pane ? workspaceLabel(state.workspaces, pane.workspace_id) : ''}
             onBack={() => setView('list')}
+            menu={menu}
             onSend={sendText}
             onKey={sendKeys}
             onMenu={() => setActionOpen(true)}
+            onTapRow={tapRow}
+            onChoice={sendKeys}
           />
         </section>
       </main>
@@ -255,7 +277,7 @@ export default function App() {
       {toast ? (
         <div
           data-testid="toast"
-          className="pointer-events-none fixed left-1/2 top-16 z-30 -translate-x-1/2 rounded-full border border-line bg-raised px-4 py-2.5 text-[13px] shadow-lg"
+          className="pointer-events-none fixed left-1/2 top-3 z-30 w-max max-w-[70vw] -translate-x-1/2 rounded-xl border border-line bg-raised px-3 py-2 text-[12px] leading-snug shadow-lg"
         >
           {toast}
         </div>

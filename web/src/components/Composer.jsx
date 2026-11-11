@@ -18,7 +18,7 @@ export const KEYS = [
  * Reply box plus the key strip. Text is reviewable before it is sent, and Send
  * submits with Enter in one herdr request; Type only is for drafting.
  */
-export function Composer({ disabled, onSend, onKey }) {
+export function Composer({ disabled, onSend, onKey, choices = [], hint = '', onChoice = () => {} }) {
   const [text, setText] = useState('');
   const inputRef = useRef(null);
 
@@ -35,6 +35,22 @@ export function Composer({ disabled, onSend, onKey }) {
 
   return (
     <div className="flex flex-col gap-2 border-t border-line bg-surface p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      {hint ? <p data-testid="menu-hint" className="m-0 px-1 text-[11px] text-muted">{hint}</p> : null}
+      {choices.length ? (
+        <div className="flex gap-2">
+          {choices.map((choice) => (
+            <button
+              key={choice.label}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChoice(choice.keys)}
+              className="h-11 flex-1 rounded-xl border border-accent/60 bg-accent/10 font-semibold text-accent disabled:opacity-40"
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {KEYS.map(([label, key]) => (
           <button

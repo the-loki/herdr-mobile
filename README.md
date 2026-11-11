@@ -26,6 +26,7 @@ Captured by `container/run-e2e.sh` from a real herdr session running `pi`.
 | ![The session list on a phone](docs/media/mobile-list.png) | ![Sidebar and pane on a desktop](docs/media/desktop.png) |
 | ![A pane's live text and the reply box](docs/media/mobile-detail.png) | |
 | ![An approval prompt answered with the key strip](docs/media/mobile-approval.png) | |
+| ![A menu drawn in the pane, offered as tappable options](docs/media/mobile-menu.png) | |
 
 ## Quick start
 
@@ -93,10 +94,16 @@ systemctl --user enable --now herdr-web
   `working`, then `done`, then `idle`, grouped by workspace and tab.
 - **Live-ish pane text.** The open pane refreshes while the tab is visible.
   Scrollback is fetched only when you ask for it.
+- **Choose from a menu.** When the pane draws one — pi's command palette, a
+  model selector, a permission dialog — it is offered as tappable options with
+  the current row highlighted. One tap becomes the arrows, digit or space the
+  TUI expects ([ADR 0007](docs/adr/0007-choosing-from-a-drawn-menu.md)). Tapping
+  the raw text works too, and a `(y/n)` prompt becomes two buttons.
 - **Reply.** `Send ⏎` submits text and Enter in one herdr request; `Type only`
-  drafts without submitting; the key strip covers `Esc`, `Ctrl-C`, `Tab`,
-  arrows, `Enter`, `y`/`n`, `1`/`2`/`3` for approval dialogs and menus. Writes
-  to one pane are serialized, so tapping `y` then `⏎` cannot arrive out of order
+  types without submitting (typing, not pasting: pi only opens its completion
+  menu for typed text); the key strip covers `Esc`, `Ctrl-C`, `Tab`, arrows,
+  `Enter`, `y`/`n`, `1`/`2`/`3`. Writes to one pane are serialized, so tapping
+  `y` then `⏎` cannot arrive out of order
   ([ADR 0006](docs/adr/0006-serialize-writes-per-pane.md)).
 - **Structure.** New workspace, new tab, split (optionally running a command
   such as `pi`), rename, close, and “show in terminal”.
@@ -131,7 +138,7 @@ Everything is verified in a container against a real herdr and a real pi pane:
 ```bash
 docker build -f container/Dockerfile -t herdr-mobile-test .
 docker run --rm -v "$PWD:/work" -v "$HOME/.pi/agent:/pi-src:ro" \
-  herdr-mobile-test bash container/run-e2e.sh   # 12 browser + API checks, screenshots in container/artifacts
+  herdr-mobile-test bash container/run-e2e.sh   # 14 browser + API checks, screenshots in container/artifacts
 ```
 
 ## Layout
@@ -154,7 +161,10 @@ docs/adr/                why it is built this way
 ## Limits
 
 - Not a terminal emulator: herdr exposes rendered pane text, not a PTY byte
-  stream, so there is no cursor, mouse or ANSI colour.
+  stream, so there is no cursor, mouse or ANSI colour. Menus are read back out of
+  that text and turned into buttons rather than clicked in place.
+- The menu reader is heuristic. Anything it does not recognise stays raw text
+  plus the key strip.
 - Pane text is polled, not pushed: herdr has no “output changed” subscription
   and its `revision` is a stub (see [ADR 0002](docs/adr/0002-poke-on-events-poll-the-visible-screen.md)).
 - No push notifications, no multi-machine view, no conversation history yet.
