@@ -164,7 +164,13 @@ export function planTap(text, tapRow) {
   const moves = Array(Math.abs(delta)).fill(delta > 0 ? 'Down' : 'Up');
 
   if (target.checked !== undefined) {
-    return { keys: [...moves, 'Space'], note: `⇅${Math.abs(delta)} 空格` };
+    const checkboxCount = Math.abs(delta);
+    const checkboxDirection = delta > 0 ? 'Down' : 'Up';
+    return { keys: [...moves, 'Space'], note: `${checkboxDirection} ×${checkboxCount}, Space` };
   }
-  return { keys: [...moves, 'Enter'], note: moves.length ? `⇅${Math.abs(delta)} ⏎` : '⏎' };
+  // Plain words, not arrow glyphs: ⇅ and ⏎ have no face on many phones and
+  // render as boxes in the toast.
+  const count = Math.abs(delta);
+  const direction = delta > 0 ? 'Down' : 'Up';
+  return { keys: [...moves, 'Enter'], note: count ? `${direction} ×${count}, Enter` : 'Enter' };
 }

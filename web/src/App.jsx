@@ -277,7 +277,7 @@ export default function App() {
       {toast ? (
         <div
           data-testid="toast"
-          className="pointer-events-none fixed left-1/2 top-3 z-30 w-max max-w-[70vw] -translate-x-1/2 rounded-xl border border-line bg-raised px-3 py-2 text-[12px] leading-snug shadow-lg"
+          className="pointer-events-none fixed left-1/2 bottom-[calc(9rem+env(safe-area-inset-bottom))] z-30 w-max max-w-[70vw] -translate-x-1/2 rounded-xl border border-line bg-raised px-3 py-2 text-[12px] leading-snug shadow-lg md:bottom-6"
         >
           {toast}
         </div>
