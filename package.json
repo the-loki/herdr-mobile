@@ -1,0 +1,14 @@
+{
+  "name": "herdr-mobile-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A Herdr plugin that serves a responsive web client (desktop and mobile) for your Herdr sessions.",
+  "scripts": {
+    "start": "node src/main.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

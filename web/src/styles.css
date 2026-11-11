@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* Semantic colours so components stay readable: bg-bg, bg-surface, text-fg… */
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-raised: var(--c-raised);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-line: var(--c-line);
+  --color-accent: var(--c-accent);
+  --color-ok: var(--c-ok);
+  --color-warn: var(--c-warn);
+  --color-bad: var(--c-bad);
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+:root {
+  --c-bg: #0f1115;
+  --c-surface: #161a21;
+  --c-raised: #1d222b;
+  --c-fg: #e6e9ef;
+  --c-muted: #9aa4b2;
+  --c-line: #262c36;
+  --c-accent: #5aa9e6;
+  --c-ok: #4caf72;
+  --c-warn: #e0a13a;
+  --c-bad: #e2605c;
+}
+
+:root[data-theme="light"] {
+  --c-bg: #f7f8fa;
+  --c-surface: #ffffff;
+  --c-raised: #eef1f5;
+  --c-fg: #12161c;
+  --c-muted: #5c6673;
+  --c-line: #d9dee6;
+  --c-accent: #1f6feb;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --c-bg: #f7f8fa;
+    --c-surface: #ffffff;
+    --c-raised: #eef1f5;
+    --c-fg: #12161c;
+    --c-muted: #5c6673;
+    --c-line: #d9dee6;
+    --c-accent: #1f6feb;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Keep the terminal area horizontally scrollable without bouncing the page. */
+.pane-text {
+  tab-size: 4;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}

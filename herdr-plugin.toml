@@ -1,0 +1,52 @@
+# Herdr Web — a browser client (desktop and phone) for the running herdr session.
+#
+#   herdr plugin link .                       # local checkout
+#   herdr plugin action invoke herdr-mobile.web.serve
+#
+# The service is a long-lived process, so it lives in a plugin pane (a tab you
+# can leave open) rather than in an action: actions are one-shot.
+id = "herdr-mobile.web"
+name = "Herdr Web"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Your herdr agents and panes in a responsive web client: read any pane live, reply from a phone, and create or close workspaces, tabs and panes. Pairing token, loopback by default."
+platforms = ["macos", "linux"]
+
+# GitHub installs build the React/Tailwind client before registering the plugin.
+# A local `herdr plugin link` skips these; run them yourself (see README).
+[[build]]
+command = ["npm", "--prefix", "web", "ci"]
+
+[[build]]
+command = ["npm", "--prefix", "web", "run", "build"]
+
+# Actions only open panes or print status; nothing here runs a daemon.
+[[actions]]
+id = "serve"
+title = "Herdr Web: Start the server"
+contexts = ["workspace"]
+command = ["sh", "scripts/open-pane.sh", "serve"]
+
+[[actions]]
+id = "pair"
+title = "Herdr Web: Show the pairing link"
+command = ["sh", "scripts/open-pane.sh", "pair"]
+
+[[actions]]
+id = "status"
+title = "Herdr Web: Status"
+command = ["sh", "scripts/status.sh"]
+
+# `serve` keeps the HTTP server in the foreground of a normal herdr pane.
+[[panes]]
+id = "serve"
+title = "Herdr Web"
+placement = "tab"
+command = ["node", "src/main.mjs"]
+
+# `pair` prints the link (and a QR when qrencode is installed) and waits.
+[[panes]]
+id = "pair"
+title = "Herdr Web: pairing link"
+placement = "overlay"
+command = ["sh", "scripts/pair.sh"]
