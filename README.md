@@ -17,6 +17,16 @@ and buttons for the structural work (new workspace, new tab, split, close).
   herdr server ── workspaces · tabs · panes · agents
 ```
 
+## Screens
+
+Captured by `container/run-e2e.sh` from a real herdr session running `pi`.
+
+| Phone | Desktop |
+| --- | --- |
+| ![The session list on a phone](docs/media/mobile-list.png) | ![Sidebar and pane on a desktop](docs/media/desktop.png) |
+| ![A pane's live text and the reply box](docs/media/mobile-detail.png) | |
+| ![An approval prompt answered with the key strip](docs/media/mobile-approval.png) | |
+
 ## Quick start
 
 ```bash
