@@ -366,6 +366,78 @@ try {
     await clickByText(page, 'Esc', { exact: true });
   });
 
+  await step('the pi pane shows its real conversation, from the agent\'s own log', async () => {
+    const piPane = (await stateFromApi()).panes.find((pane) => pane.agent === 'pi');
+    assert.ok(piPane, 'the pi pane is listed');
+    assert.equal(piPane.agent_session?.kind, 'path', 'herdr reports a session file for this pane');
+
+    // One small turn that forces a tool call, so the tool card has something to show.
+    const prompt = 'Run the bash command `echo CONV-TOOL-OK` and then reply with what it printed.';
+    const sent = await fetch(`${BASE}/api/pane/${encodeURIComponent(piPane.id)}/input`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ text: prompt, submit: true }),
+    });
+    assert.equal(sent.status, 200, 'the prompt was accepted');
+
+    // The transcript endpoint reads the file; wait until the turn is recorded.
+    let transcript = null;
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const response = await fetch(`${BASE}/api/pane/${encodeURIComponent(piPane.id)}/transcript?limit=40`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      if (response.status !== 200) continue;
+      transcript = await response.json();
+      // Wait for the *assistant text* (not just the tool result) and for the agent
+      // to stop working, so the screenshot shows a finished exchange.
+      const hasReply = transcript.entries.some((entry) => entry.kind === 'assistant' && entry.text?.includes('CONV-TOOL-OK'));
+      const hasTool = transcript.entries.some((entry) => entry.kind === 'assistant' && entry.tools?.length);
+      const settled = (await stateFromApi()).panes.find((pane) => pane.agent === 'pi')?.agent_status !== 'working';
+      if (hasReply && hasTool && settled) break;
+    }
+    assert.ok(transcript, 'the transcript endpoint answered');
+    const kinds = transcript.entries.map((entry) => entry.kind);
+    assert.ok(kinds.includes('user'), `the user turn is recorded (${kinds.join(',')})`);
+    assert.ok(
+      transcript.entries.some((entry) => entry.kind === 'assistant' && entry.tools?.length),
+      'the assistant turn carries its tool call',
+    );
+    const tool = transcript.entries.flatMap((entry) => entry.tools ?? []).find((candidate) => candidate.output?.includes('CONV-TOOL-OK'));
+    assert.ok(tool, 'the tool result is attached to its call');
+
+    // And the UI renders it as a conversation, with the tool card.
+    await click(page, 'button[aria-label="Show session list"]');
+    await page.waitForSelector(`[data-pane-id="${piPane.id}"]`, { timeout: 15000 });
+    await click(page, `[data-pane-id="${piPane.id}"]`);
+    await page.waitForSelector('[data-testid="tool-card"]', { timeout: 30000 });
+    // The assistant's own words must be on screen too — asserted on its text node,
+    // because the collapsed tool card also contains the command it ran.
+    await page.waitForFunction(
+      () => {
+        const texts = [...document.querySelectorAll('[data-testid="assistant-text"]')];
+        return texts.some((node) => (node.textContent ?? '').includes('CONV-TOOL-OK'));
+      },
+      { timeout: 40000 },
+    );
+    // And the agent must have stopped working, so nothing on screen is mid-flight.
+    await page.waitForFunction(
+      () => {
+        const chip = [...document.querySelectorAll('span')].find((node) =>
+          ['idle', 'done', 'blocked', 'working'].includes((node.textContent ?? '').trim()),
+        );
+        return chip && chip.textContent.trim() !== 'working';
+      },
+      { timeout: 40000 },
+    );
+    await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-conversation.png') });
+
+    // The raw screen is still one tap away.
+    await clickByText(page, '终端');
+    await page.waitForFunction(() => (document.querySelector('pre')?.textContent ?? '').length > 40, { timeout: 20000 });
+    await page.screenshot({ path: path.join(ARTIFACTS, 'mobile-conversation-terminal.png') });
+  });
+
   await step('typing from the phone reaches the pane (Type only, no submit)', async () => {
     const marker = `typed-${Date.now().toString(36)}`;
     const pane = (await stateFromApi()).panes.find((candidate) => candidate.agent === 'pi');

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { HerdrError } from '../src/herdr.mjs';
 import { createApi } from '../src/api.mjs';
@@ -231,6 +234,91 @@ test('a failing send does not wedge the queue for that pane', async () => {
   assert.equal(bad.status, 400);
   assert.equal(good.status, 200);
   assert.deepEqual(calls, [['boom'], ['Enter']]);
+});
+
+test('a pane that carries an agent session is reported to the browser', async () => {
+  const client = stubClient({
+    'session.snapshot': {
+      type: 'session_snapshot',
+      snapshot: {
+        version: '0.9.5',
+        protocol: 22,
+        workspaces: [],
+        tabs: [],
+        layouts: [],
+        agents: [],
+        panes: [
+          {
+            pane_id: 'w1:p1',
+            workspace_id: 'w1',
+            tab_id: 'w1:t1',
+            agent: 'pi',
+            agent_status: 'idle',
+            agent_session: { source: 'herdr:pi', agent: 'pi', kind: 'path', value: '/tmp/session.jsonl' },
+          },
+        ],
+      },
+    },
+  });
+
+  const res = await call(client, 'GET', '/api/state');
+  assert.deepEqual(res.body.panes[0].agent_session, { agent: 'pi', kind: 'path' });
+  assert.equal(JSON.stringify(res.body).includes('/tmp/session.jsonl'), false, 'the path stays on the server');
+});
+
+test('the transcript endpoint reads the agent\'s own session file, paged', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hmw-transcript-'));
+  const file = path.join(dir, 'session.jsonl');
+  fs.copyFileSync(path.join(import.meta.dirname, 'fixtures', 'pi-session.jsonl'), file);
+
+  const client = stubClient({
+    'pane.get': {
+      type: 'pane_info',
+      pane: {
+        pane_id: 'w1:p1',
+        agent: 'pi',
+        agent_session: { source: 'herdr:pi', agent: 'pi', kind: 'path', value: file },
+      },
+    },
+  });
+
+  const page = await call(client, 'GET', '/api/pane/w1:p1/transcript?limit=2');
+  assert.equal(page.status, 200);
+  assert.equal(page.body.entries.length, 2);
+  assert.equal(page.body.hasMore, true);
+  assert.equal(page.body.meta.model, 'deepseek-v4.1-flash:1017-cloud');
+
+  const older = await call(client, 'GET', `/api/pane/w1:p1/transcript?before=${page.body.nextBefore}&limit=10`);
+  assert.deepEqual(
+    [...older.body.entries, ...page.body.entries].map((entry) => entry.kind),
+    ['user', 'assistant', 'assistant'],
+  );
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a session that does not exist yet is an empty conversation, not an error', async () => {
+  // pi creates its file with the first message, so "not there yet" is normal.
+  const noSession = stubClient({ 'pane.get': { pane: { pane_id: 'w1:p1', agent: 'pi' } } });
+  const missing = await call(noSession, 'GET', '/api/pane/w1:p1/transcript');
+  assert.equal(missing.status, 200);
+  assert.deepEqual(missing.body.entries, []);
+  assert.equal(missing.body.unavailable, 'no-session');
+
+  const gone = stubClient({
+    'pane.get': { pane: { agent: 'pi', agent_session: { agent: 'pi', kind: 'path', value: '/nonexistent/x.jsonl' } } },
+  });
+  const unreadable = await call(gone, 'GET', '/api/pane/w1:p1/transcript');
+  assert.equal(unreadable.status, 200);
+  assert.equal(unreadable.body.unavailable, 'file-missing');
+
+  // An agent we have no reader for is a real limitation and says so.
+  const otherAgent = stubClient({
+    'pane.get': { pane: { agent: 'cursor', agent_session: { agent: 'cursor', kind: 'path', value: '/tmp/x.jsonl' } } },
+  });
+  const unsupported = await call(otherAgent, 'GET', '/api/pane/w1:p1/transcript');
+  assert.equal(unsupported.status, 400);
+  assert.equal(unsupported.body.error.code, 'transcript_unsupported');
 });
 
 test('unknown routes and non-allowlisted herdr methods are refused', async () => {

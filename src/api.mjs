@@ -1,6 +1,8 @@
 // The HTTP-facing API. This module is the security boundary: the browser can
 // only reach the herdr methods listed here, with validated parameters.
+import fs from 'node:fs';
 import { HerdrError } from './herdr.mjs';
+import { adapterFor, pageEntries } from './transcript.mjs';
 
 const READ_SOURCES = new Set(['visible', 'recent', 'recent_unwrapped', 'detection']);
 const MAX_TEXT = 64 * 1024;
@@ -8,6 +10,7 @@ const MAX_KEYS = 32;
 const MAX_LABEL = 200;
 const MAX_LINES = 2000;
 const MAX_ARGV = 32;
+const MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024;
 
 export function createApi({ client }) {
   const routes = buildRoutes();
@@ -71,6 +74,7 @@ function buildRoutes() {
   }],
   ['GET', ['api', 'state'], async ({ client }) => ok(normalizeSnapshot(await client.rpc('session.snapshot')))],
   ['GET', ['api', 'pane', ':paneId'], getPaneText],
+  ['GET', ['api', 'pane', ':paneId', 'transcript'], getTranscript],
   ['POST', ['api', 'pane', ':paneId', 'input'], postInput],
   ['POST', ['api', 'pane', ':paneId', 'keys'], postKeys],
   ['POST', ['api', 'pane', ':paneId', 'focus'], async ({ client, params }) => {
@@ -157,6 +161,48 @@ async function getPaneText({ client, params, query }) {
   const result = await client.rpc('pane.read', compact({ pane_id: params.paneId, source, lines, format: 'text' }));
   const read = result.read ?? {};
   return ok({ text: read.text ?? '', revision: read.revision ?? 0, truncated: Boolean(read.truncated) });
+}
+
+/**
+ * The agent's own conversation log, not a reading of its screen. The path comes
+ * from herdr's `agent_session`; it is read here and never sent to the browser.
+ */
+async function getTranscript({ client, params, query }) {
+  const info = await client.rpc('pane.get', { pane_id: params.paneId });
+  const pane = info.pane ?? {};
+  const session = pane.agent_session;
+  const adapter = adapterFor(pane.agent ?? session?.agent);
+
+  if (!session || session.kind !== 'path' || !session.value) {
+    // Normal state: no integration installed, or no message sent yet.
+    return ok({ meta: null, entries: [], hasMore: false, nextBefore: 0, unavailable: 'no-session' });
+  }
+  if (!adapter) {
+    return fail(400, 'transcript_unsupported', `no transcript reader for agent ${pane.agent ?? session.agent ?? 'unknown'}`);
+  }
+
+  let text;
+  try {
+    const stat = fs.statSync(session.value);
+    if (!stat.isFile()) throw new Error('not a regular file');
+    if (stat.size > MAX_TRANSCRIPT_BYTES) return fail(413, 'transcript_too_large', 'session file is larger than 16 MB');
+    text = fs.readFileSync(session.value, 'utf8');
+  } catch {
+    // pi writes its file with the first message; until then the conversation is empty.
+    return ok({ meta: null, entries: [], hasMore: false, nextBefore: 0, unavailable: 'file-missing' });
+  }
+
+  const session_ = adapter(text);
+  // Number(null) is 0, which would page from the very beginning: parse only when asked.
+  const beforeRaw = query.get('before');
+  const limitRaw = query.get('limit');
+  const before = beforeRaw === null ? undefined : Number(beforeRaw);
+  const limit = limitRaw === null ? undefined : Number(limitRaw);
+  const page = pageEntries(session_.entries, {
+    before: Number.isFinite(before) ? before : undefined,
+    limit: Number.isFinite(limit) ? limit : undefined,
+  });
+  return ok({ meta: session_.meta, ...page });
 }
 
 async function postInput({ client, params, body, writeToPane }) {
@@ -313,6 +359,10 @@ function normalizeSnapshot(result) {
 
 function shapePane(pane) {
   return {
+    // Deliberately only the *kind*: the file path never leaves the server.
+    agent_session: pane.agent_session
+      ? { agent: pane.agent_session.agent, kind: pane.agent_session.kind }
+      : null,
     id: pane.pane_id,
     workspace_id: pane.workspace_id,
     tab_id: pane.tab_id,

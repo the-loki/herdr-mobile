@@ -47,6 +47,14 @@ conflicts with a casual reading, this file wins.
   to `idle`.
 - **viewport poll** — the browser re-reading the open pane with `visible` every
   1.2 s while the tab is visible.
+- **transcript** — the agent's own conversation log (`agent_session`, kind
+  `path`). Structured: messages, thinking, tool calls and their results. The
+  source for the chat view, never for approvals.
+- **adapter** — one function per agent that turns its transcript format into the
+  normalised entries this client renders (`readPiSession` today).
+- **pane vs transcript** — the split that shapes the UI: the transcript answers
+  "what did it say and do", the pane answers "what is it asking me right now",
+  and keys are the only way to answer.
 - **drawn menu** — a set of rows an agent painted into the pane to be chosen from:
   a highlight marker (`→`, `❯`), optional numbers, optional checkboxes, and a
   description column. There is no API for it; it is read back out of the text.

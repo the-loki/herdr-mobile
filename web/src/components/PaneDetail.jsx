@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { tailPath } from '../lib/domain.js';
 import { Composer } from './Composer.jsx';
+import { Conversation } from './Conversation.jsx';
 import { MenuChooser } from './MenuChooser.jsx';
+import { useTranscript } from '../hooks/useTranscript.js';
 import { StatusChip } from './PaneRow.jsx';
 
 /** Which rendered row the tap landed on, so a menu row can be chosen by touch. */
@@ -45,6 +47,15 @@ export function PaneDetail({
 }) {
   const outputRef = useRef(null);
   const [stick, setStick] = useState(true);
+  // The agent's own log is the default view when herdr reports one; the raw
+  // screen stays one tap away for menus, approvals and anything unparsed.
+  const hasTranscript = Boolean(pane?.agent_session);
+  const [tab, setTab] = useState(null);
+  const activeTab = tab ?? (hasTranscript ? 'conversation' : 'terminal');
+  const transcript = useTranscript(pane?.id, {
+    enabled: hasTranscript,
+    agentStatus: pane?.agent_status,
+  });
 
   // Follow the tail until the reader scrolls away; then leave them alone.
   useEffect(() => {
@@ -101,7 +112,33 @@ export function PaneDetail({
         </button>
       </header>
 
-      <div className="relative flex min-h-0 min-w-0 flex-1">
+      {hasTranscript ? (
+        <div role="tablist" aria-label="Pane view" className="flex gap-1 border-b border-line bg-surface px-2 py-1">
+          {[
+            ['conversation', '对话'],
+            ['terminal', '终端'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === id}
+              onClick={() => setTab(id)}
+              className={`h-8 rounded-lg px-3 text-[12px] ${
+                activeTab === id ? 'bg-raised font-semibold text-fg' : 'text-muted'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {activeTab === 'conversation' && hasTranscript ? (
+        <Conversation transcript={transcript} paneLabel={pane.title || pane.agent} />
+      ) : null}
+
+      <div className={`relative min-h-0 min-w-0 flex-1 ${activeTab === 'terminal' ? 'flex' : 'hidden'}`}>
         <pre
           ref={outputRef}
           onScroll={onScroll}

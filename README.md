@@ -27,6 +27,7 @@ Captured by `container/run-e2e.sh` from a real herdr session running `pi`.
 | ![A pane's live text and the reply box](docs/media/mobile-detail.png) | |
 | ![An approval prompt answered with the key strip](docs/media/mobile-approval.png) | |
 | ![A menu drawn in the pane, offered as tappable options](docs/media/mobile-menu.png) | |
+| ![The agent's own conversation, with a tool card](docs/media/mobile-conversation.png) | |
 
 ## Quick start
 
@@ -90,6 +91,11 @@ systemctl --user enable --now herdr-web
 
 ## What the web client does
 
+- **The conversation, not a screen.** When herdr reports an agent session file,
+  the pane opens as a chat: messages, collapsible thinking, and tool cards with
+  their arguments and output, read from the agent's own transcript
+  ([ADR 0008](docs/adr/0008-read-the-transcript-not-the-screen.md)). A `终端`
+  tab keeps the raw screen for menus and anything unparsed.
 - **Agents first.** The list is ordered by what needs you: `blocked`, then
   `working`, then `done`, then `idle`, grouped by workspace and tab.
 - **Live-ish pane text.** The open pane refreshes while the tab is visible.
@@ -138,13 +144,14 @@ Everything is verified in a container against a real herdr and a real pi pane:
 ```bash
 docker build -f container/Dockerfile -t herdr-mobile-test .
 docker run --rm -v "$PWD:/work" -v "$HOME/.pi/agent:/pi-src:ro" \
-  herdr-mobile-test bash container/run-e2e.sh   # 14 browser + API checks, screenshots in container/artifacts
+  herdr-mobile-test bash container/run-e2e.sh   # 15 browser + API checks, screenshots in container/artifacts
 ```
 
 ## Layout
 
 ```
 herdr-plugin.toml        plugin manifest: build steps, actions, panes
+src/transcript.mjs       reads an agent's own session file (pi adapter today)
 src/main.mjs             CLI: config, serve, print the pairing link
 src/app.mjs              wires client + API + server + event bridge
 src/herdr.mjs            herdr socket client (one request per connection)

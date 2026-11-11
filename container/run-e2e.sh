@@ -30,6 +30,10 @@ nohup herdr server > /tmp/herdr-server.log 2>&1 &
 for _ in $(seq 1 60); do herdr status server 2>/dev/null | grep -q 'status: running' && break; sleep 0.5; done
 herdr status server | sed 's/^/  /'
 
+# The integration is what makes herdr report an agent_session (the transcript
+# path) for a pane; without it the conversation view has nothing to read.
+herdr integration install pi >/dev/null 2>&1 || true
+
 banner "3/7 a workspace running pi"
 mkdir -p /tmp/proj
 workspace_json="$(herdr workspace create --cwd /tmp/proj --label demo)"

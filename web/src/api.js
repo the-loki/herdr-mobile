@@ -31,6 +31,13 @@ export const api = {
     if (lines) query.set('lines', String(lines));
     return request(`/api/pane/${encodeURIComponent(paneId)}?${query}`);
   },
+  transcript: (paneId, { before, limit } = {}) => {
+    const query = new URLSearchParams();
+    if (before !== undefined) query.set('before', String(before));
+    if (limit) query.set('limit', String(limit));
+    const suffix = query.toString() ? `?${query}` : '';
+    return request(`/api/pane/${encodeURIComponent(paneId)}/transcript${suffix}`);
+  },
   input: (paneId, { text, submit }) =>
     request(`/api/pane/${encodeURIComponent(paneId)}/input`, { method: 'POST', body: { text, submit } }),
   keys: (paneId, keys) => request(`/api/pane/${encodeURIComponent(paneId)}/keys`, { method: 'POST', body: { keys } }),
